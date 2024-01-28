@@ -22,13 +22,6 @@ class VbtProSpider(scrapy.Spider):
         # Combine and centralize data directories from both spiders
         self.base_dir = 'docs/vbt_pro'
         self.api_dir = os.path.join(self.base_dir, 'api')
-        self.file_map = {
-            'features': 'features.md',
-            'tutorials': 'tutorials.md',
-            'documentation': 'documentation.md',
-            'api': 'api.md',
-            'cookbook': 'cookbook.md'
-        }
 
     def start_requests(self):
         # Ensure base directories exist
@@ -39,11 +32,9 @@ class VbtProSpider(scrapy.Spider):
             yield scrapy.Request(url=url, callback=self.parse)
 
     def parse(self, response):
+        print(f'Parsing {response.url}')
         # Decode the response body explicitly with UTF-8 if necessary
         response_body = response.body.decode('utf-8', errors='replace')
-
-        # Identify the section of the URL to determine the output directory and file naming
-        section = response.url.split('/')[4]
 
         # Using readability to extract the main content
         document = Document(response_body)
@@ -53,20 +44,27 @@ class VbtProSpider(scrapy.Spider):
         converter = html2text.HTML2Text()
         markdown_content = converter.handle(summary)
 
-        # Write content to appropriate files depending on the URL section
-        if section == 'api':
-            # The filename is set using the last part of the URL path for the API section
-            filename = os.path.join(self.api_dir, f'{response.url.split("/")[-2]}.md')
+        # Split the URL and create a filename based on the number of segments
+        url_segments = response.url.split('/')
+        # Filter out empty segments and take segments after the domain
+        relevant_segments = [segment for segment in url_segments[4:] if segment]
+
+        # Construct the filename dynamically
+        if relevant_segments[0] == 'api':
+            # Special handling for API section
+            filename = os.path.join(self.api_dir, f'{relevant_segments[-1]}.txt')
         else:
-            # Use predefined filenames for other sections
-            filename = os.path.join(self.base_dir, self.file_map.get(section, 'unknown.md'))
+            # Join segments with a dash to form the filename
+            article_name = '-'.join(relevant_segments) + '.txt'
+            filename = os.path.join(self.base_dir, article_name)
 
         # Write main content as Markdown with UTF-8 encoding
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(markdown_content)
 
-        # Follow links according to the logic of both spiders
+        # Follow links that start with any of the start URLs
         for href in response.css('a::attr(href)').getall():
-            # The spider should follow links found in the API pages, as well as those containing the secret URL
-            if href.startswith(f'/{self.secret_url}/api/') or self.secret_url in href:
+            full_href = response.urljoin(href)
+            if any(full_href.startswith(start_url) for start_url in self.start_urls):
                 yield response.follow(href, self.parse)
+
