@@ -173,3 +173,5 @@ index_notebook/
 git_repo_scraper/qubit_quants_vbt_repo
 
 !.gitkeep
+.files/
+notebooks/downloaded_markdowns/
