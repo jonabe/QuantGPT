@@ -2,7 +2,6 @@ import os
 import logging
 from typing import Iterator
 from llama_index import (
-    LLMPredictor,
     StorageContext,
     VectorStoreIndex,
     load_index_from_storage,
@@ -24,6 +23,13 @@ from llama_index.node_parser.extractors import (
     MetadataExtractor,
     QuestionsAnsweredExtractor,
 )
+
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.llms.openai import OpenAI
+from llama_index.core import Settings
+
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -73,24 +79,6 @@ class QuantMetadataVectorStorage:
                 if file.endswith(".md") and file not in exclude_files:
                     yield os.path.join(root, file)
 
-    def create_llm_predictor(self) -> LLMPredictor:
-        """
-        Sets up and returns an instance of the LLMPredictor class, which uses the ChatOpenAI class
-        to generate predictions based on the GPT model specified by the `gpt_model` attribute of this
-        SimpleVectorStorage instance.
-
-        Returns:
-                An instance of the LLMPredictor class.
-        """
-        return LLMPredictor(
-            llm=ChatOpenAI(
-                temperature=self.gpt_temperature,
-                model_name=self.gpt_model,
-                max_tokens=2048,
-                streaming=True,
-            ),
-        )
-
     def get_llm_indexer(self):
         """
         Sets up and returns an instance of the LLMPredictor class, which uses the ChatOpenAI class
@@ -100,7 +88,7 @@ class QuantMetadataVectorStorage:
         Returns:
                 An instance of the LLMPredictor class.
         """
-        return OpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=512)
+        return OpenAI(temperature=self.gpt_temperature, model=self.gpt_model, max_tokens=512)
 
     def load_index_nodes(self):
         logger.info('Loading documents...')
@@ -168,6 +156,7 @@ class QuantMetadataVectorStorage:
         Returns:
                 A new ServiceContext instance.
         """
+        
         llm_predictor = self.create_llm_predictor()
 
         return ServiceContext.from_defaults(
@@ -175,7 +164,6 @@ class QuantMetadataVectorStorage:
             chunk_size=1024,
             callback_manager=CallbackManager([callback_handler])
         )
-
     def create_query_engine(self, callback_handler: BaseCallbackHandler = None) -> RetrieverQueryEngine:
         """
         Creates a RetrieverQueryEngine object with the configured VectorIndexRetriever and response synthesizer.
@@ -183,8 +171,11 @@ class QuantMetadataVectorStorage:
         Returns:
                 RetrieverQueryEngine: The created RetrieverQueryEngine object.
         """
-
-        service_context = self.create_service_context(callback_handler)
+        Settings.llm = OpenAI(model=self.gpt_model, temperature=self.gpt_temperature, max_tokens=2048, streaming=True) 
+        Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+        Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
+        Settings.num_output = 512
+        Settings.context_window = 3900
 
         # Configure retriever within the service context
         retriever = VectorIndexRetriever(
@@ -193,15 +184,13 @@ class QuantMetadataVectorStorage:
         )
 
         # Configure response synthesizer within the service context
-        response_synthesizer = get_response_synthesizer(
-            response_mode="tree_summarize", service_context=service_context)
+        # response_synthesizer = get_response_synthesizer(
+        #     response_mode="tree_summarize", service_context=service_context)
 
         # Assemble query engine
         query_engine = RetrieverQueryEngine.from_args(
             streaming=True,
             retriever=retriever,
-            response_synthesizer=response_synthesizer,
-            service_context=service_context,
             node_postprocessors=[
                 SimilarityPostprocessor(similarity_cutoff=0.73)
             ]

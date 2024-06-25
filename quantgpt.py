@@ -4,9 +4,12 @@ from typing import Optional
 import openai
 import chainlit as cl
 from dotenv import load_dotenv
-
-from llama_index.query_engine import RetrieverQueryEngine
+from llama_index.core.query_engine import RetrieverQueryEngine
+# from llama_index.query_engine.retriever_query_engine import (
+#     RetrieverQueryEngine,
+# )
 from quantgptlib.simple_vector_storage import QuantSimpleVectorStorage
+
 
 # Load environment variables
 load_dotenv(".env", override=True)
@@ -78,8 +81,10 @@ async def main(message: cl.Message):
     response = await cl.make_async(query_engine.query)(message.content)
 
     step = cl.Step()
-
-    if hasattr(response, "response"):
+    logger.info(f"Received message:{message.content} response:{response}")
+    if hasattr(response, "response") or len(response):
         step.output = response.response
-
-    await step.send()
+    else:
+        step.output = "Empty response"
+    #await step.send()  #step.output not showing up in client anymore  
+    await cl.Message(content=response).send()
